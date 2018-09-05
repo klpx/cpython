@@ -215,39 +215,42 @@ class Sniffer:
         """
 
         matches = []
-        for restr in (r'(?P<delim>[^\w\n"\'])(?P<space> ?)(?P<quote>["\']).*?(?P=quote)(?P=delim)', # ,".*?",
-                      r'(?:^|\n)(?P<quote>["\']).*?(?P=quote)(?P<delim>[^\w\n"\'])(?P<space> ?)',   #  ".*?",
-                      r'(?P<delim>[^\w\n"\'])(?P<space> ?)(?P<quote>["\']).*?(?P=quote)(?:$|\n)',   # ,".*?"
-                      r'(?:^|\n)(?P<quote>["\']).*?(?P=quote)(?:$|\n)'):                            #  ".*?" (no delim, no space)
+        for restr in (
+            # ,".*?",
+            r'(?P<delim>[^\w\n"\'])(?P<space> ?)'
+            r'(?P<quote>["\'])(?:(?P=quote){2}|(?!(?P=quote)).)*?(?P=quote)(?P=delim)',
+            #  ".*?",
+            r'(?:^|\n)(?P<quote>["\'])(?:(?P=quote){2}|(?!(?P=quote)).)*?(?P=quote)(?P<delim>[^\w\n"\'])(?P<space> ?)',
+            # ,".*?"
+            r'(?P<delim>[^\w\n"\'])(?P<space> ?)(?P<quote>["\'])(?:(?P=quote){2}|(?!(?P=quote)).)*?(?P=quote)(?:$|\n)',
+            #  ".*?" (no delim, no space)
+            r'(?:^|\n)(?P<quote>["\'])(?:(?P=quote){2}|(?!(?P=quote)).)*?(?P=quote)(?:$|\n)',
+        ):
             regexp = re.compile(restr, re.DOTALL | re.MULTILINE)
-            matches = regexp.findall(data)
-            if matches:
-                break
+            for match in regexp.findall(data):
+                result = {}
+                for k, index in regexp.groupindex.items():
+                    result[k] = match[index - 1]
+                matches.append(result)
 
         if not matches:
             # (quotechar, doublequote, delimiter, skipinitialspace)
-            return ('', False, None, 0)
+            return '', False, None, 0
         quotes = {}
         delims = {}
         spaces = 0
-        groupindex = regexp.groupindex
         for m in matches:
-            n = groupindex['quote'] - 1
-            key = m[n]
-            if key:
-                quotes[key] = quotes.get(key, 0) + 1
-            try:
-                n = groupindex['delim'] - 1
-                key = m[n]
-            except KeyError:
+            quote = m.get('quote')
+            if quote is not None:
+                quotes[quote] = quotes.get(quote, 0) + 1
+
+            delim = m.get('delim')
+            if delim is None:
                 continue
-            if key and (delimiters is None or key in delimiters):
-                delims[key] = delims.get(key, 0) + 1
-            try:
-                n = groupindex['space'] - 1
-            except KeyError:
-                continue
-            if m[n]:
+            if delim and (delimiters is None or delim in delimiters):
+                delims[delim] = delims.get(delim, 0) + 1
+
+            if 'space' in m:
                 spaces += 1
 
         quotechar = max(quotes, key=quotes.get)
@@ -255,7 +258,7 @@ class Sniffer:
         if delims:
             delim = max(delims, key=delims.get)
             skipinitialspace = delims[delim] == spaces
-            if delim == '\n': # most likely a file with a single column
+            if delim == '\n':  # most likely a file with a single column
                 delim = ''
         else:
             # there is *no* delimiter, it's a single column of quoted data
@@ -265,10 +268,9 @@ class Sniffer:
         # if we see an extra quote between delimiters, we've got a
         # double quoted format
         dq_regexp = re.compile(
-                               r"((%(delim)s)|^)\W*%(quote)s[^%(delim)s\n]*%(quote)s[^%(delim)s\n]*%(quote)s\W*((%(delim)s)|$)" % \
-                               {'delim':re.escape(delim), 'quote':quotechar}, re.MULTILINE)
-
-
+            r"((%(delim)s)|^)\W*%(quote)s[^%(delim)s\n]*%(quote)s[^%(delim)s\n]*%(quote)s\W*((%(delim)s)|$)"
+            % {'delim': re.escape(delim), 'quote': quotechar}, re.MULTILINE
+        )
 
         if dq_regexp.search(data):
             doublequote = True
